@@ -1,0 +1,112 @@
+#!/usr/bin/bash
+
+VERSION="v0.1.0"
+
+set -euo pipefail
+set -a
+source "$(pwd)/.env"
+set +a
+
+show_help() {
+    echo "Usage: $0 [options]"
+    echo "Options:"
+    echo "  -h, --help                  Show this help message"
+    echo "  -v, --version               Show version information"
+    echo "  -c, --compile               Compile contract"
+    echo "  -d, --declare NAME          Declare contract with NAME"
+    echo "  -p, --deploy HASH [ARGS]    Deploy class HASH [optional constructor ARGS]"
+}
+
+show_version() {
+    echo "Starknet contract deployer - $VERSION"
+}
+
+validate_env_var() {
+    local var_name="$1"
+    local var_value="${!var_name:-}"
+    if [ -z "$var_value" ]; then
+        echo "Error: $var_name is not defined in .env file"
+        exit 1
+    fi
+}
+
+compile_contract() {
+    echo "Compiling contract..."
+    if ! scarb build; then
+        echo "Compilation failed"
+        exit 1
+    fi
+    echo "Compilation complete."
+}
+
+declare_contract() {
+    local contract_name="$1"
+    echo "Declaring $contract_name..."
+    local declare_output
+    if ! declare_output=$(sncast --account "$ACCOUNT_NAME" declare --contract-name "$contract_name" --url "$RPC"); then
+        echo "Error: failed to declare $contract_name"
+        echo "$declare_output"
+        exit 1
+    fi
+    local class_hash
+    class_hash=$(echo "$declare_output" | grep -oP '(?<=class_hash: )[^ ]+')
+    echo "Contract declared. Class hash: $class_hash"
+}
+
+deploy_contract() {
+    local class_hash="$1"
+    shift
+    local constructor_args=("$@")
+    echo "Deploying contract..."
+    local deploy_output
+    if ! deploy_output=$(sncast --account "$ACCOUNT_NAME" deploy --url "$RPC" --class-hash "$class_hash" -c ${constructor_args[@]+"${constructor_args[@]}"}); then
+        echo "Error: failed to deploy contract"
+        exit 1
+    fi
+
+    local contract_address
+    contract_address=$(echo "$deploy_output" | grep -oP '(?<=contract_address: )[^ ]+')
+    local tx_hash
+    tx_hash=$(echo "$deploy_output" | grep -oP '(?<=transaction_hash: )[^ ]+')
+
+    echo "Contract deployed successfully."
+    echo "Contract address: $contract_address"
+    echo "Transaction hash: $tx_hash"
+}
+
+# main() {
+#     # Add your constructor arguments here if needed
+#     # local owner_address="0x491478e4747efb656e9e22ed3d5d03c1648d007b142c9af51dfb71f51ccc22f"
+#     # local constructor_args=("$owner_address")
+#     # deploy_contract "$class_hash" "${constructor_args[@]}"
+# }
+
+validate_env_var "RPC_API_KEY"
+validate_env_var "ACCOUNT_NAME"
+validate_env_var "NETWORK"
+
+export RPC="https://rpc.nethermind.io/sepolia-juno?apikey=$RPC_API_KEY"
+export STARKNET_NETWORK="$NETWORK"
+
+contract_name=""
+class_hash=""
+constructor_args=""
+
+if [[ "$#" -eq 0 ]]; then
+    show_help; exit 0;
+fi
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -h|--help) show_help; exit 0 ;;
+        -v|--version) show_version; exit 0 ;;
+        -c|--compile) compile_contract; exit 0 ;;
+        -d|--declare) contract_name="$2"; declare_contract "$contract_name"; shift ;;
+        -p|--deploy) 
+            class_hash="$2"; shift; shift; constructor_args="$@";
+            deploy_contract "$class_hash" "${constructor_args[@]}";
+            exit 0 ;;
+        *) echo "Unknown option: $1" >&2; show_help; exit 1 ;;
+    esac
+    shift
+done
