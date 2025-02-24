@@ -91,7 +91,7 @@ mod ContractMe {
 
 			let caller_balance = strk_token.balance_of(caller);
 			assert(caller_balance >= cost, 'Insufficient balance');
-			assert(strk_token.allowance(contract) >= cost, 'Insufficient allowance');
+			assert(strk_token.allowance(caller, contract) >= cost, 'Insufficient allowance');
 			assert(strk_token.transfer_from(caller, contract, cost), 'Fee transfer failed');
 			self.prize_pool.write(new_pool);
 			self.emit(Event::BuyIn(BuyIn {
@@ -114,7 +114,7 @@ mod ContractMe {
 
 			let caller_balance = strk_token.balance_of(caller);
 			assert(caller_balance >= amount, 'Insufficient balance');
-			assert(strk_token.allowance() >= amount, 'Insufficient allowance');
+			assert(strk_token.allowance(caller, contract) >= amount, 'Insufficient allowance');
 			assert(strk_token.transfer_from(caller, contract, amount), 'Funding transfer failed');
 			self.prize_pool.write(new_pool);
 		}
